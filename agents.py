@@ -15,7 +15,7 @@ except Exception:
     from urllib3.util.retry import Retry  # type: ignore
 from http.client import RemoteDisconnected
 
-API_BASE = "https://4m5g0rateg0xgh-8000.proxy.runpod.net/v1"
+API_BASE = "https://lzl4i1wx0cdh9a-8000.proxy.runpod.net/v1"
 API_URLS = [
     f"{API_BASE}/chat/completions",
     f"{API_BASE}/completions",  # some deployments use legacy route
@@ -381,6 +381,7 @@ def _manual_pipeline(input_prompt: str, input_data: Dict[str, Any], max_rounds: 
     except Exception as e:
         used_fallback = True
         fallback_draft = _rule_based_sop(input_data)
+        conversation.append({"name": "System", "content": f"LLM error: {e}"})
         conversation.append({"name": "Writer", "content": "Локальный генератор сформировал черновик SOP (без LLM)."})
         conversation.append({"name": "Critic", "content": "STATUS: OK"})
         status = "OK"
