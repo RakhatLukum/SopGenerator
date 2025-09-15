@@ -1,4 +1,7 @@
 streamlit
 autogen
 requests
-python-docx 
+python-docx
+pdfplumber
+openpyxl
+pypdf 

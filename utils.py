@@ -74,6 +74,40 @@ def sanitize_markdown(md: str) -> str:
     cleaned = re.sub(r"<br\s*/?>", "\n", cleaned, flags=re.IGNORECASE)
     # Strip any remaining HTML tags
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
+
+    # Remove LLM front-matter/meta lines
+    lines = cleaned.splitlines()
+    meta_patterns = [
+        r"^\s*\*\*?СТАНДАРТНАЯ ОПЕРАЦИОННАЯ ПРОЦЕДУРА\*\*?\s*$",
+        r"^\s*\*\*?Номер:\*\*?.*$",
+        r"^\s*\*\*?Тип оборудования:\*\*?.*$",
+        r"^\s*\*\*?Тип содержимого:\*\*?.*$",
+        r"^\s*\*\*?Страница:\*\*?.*$",
+        r"^\s*\*\*?Шрифт:\*\*?.*$",
+        r"^\s*Номер:\s*.*$",
+        r"^\s*Тип оборудования:\s*.*$",
+        r"^\s*Тип содержимого:\s*.*$",
+        r"^\s*Страница:\s*.*$",
+        r"^\s*Шрифт:\s*.*$",
+    ]
+    meta_regex = [re.compile(p, re.IGNORECASE) for p in meta_patterns]
+
+    kept: List[str] = []
+    prev_was_meta = False
+    for idx, line in enumerate(lines):
+        is_meta = any(rx.search(line) for rx in meta_regex)
+        # Skip setext underline immediately following meta/title
+        if not is_meta and prev_was_meta and re.match(r"^[=-]{3,}\s*$", line):
+            prev_was_meta = False
+            continue
+        if is_meta:
+            prev_was_meta = True
+            continue
+        prev_was_meta = False
+        kept.append(line)
+
+    cleaned = "\n".join(kept)
+
     # Normalize multiple blank lines
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned
@@ -92,9 +126,38 @@ def _read_all_bytes(uploaded_file) -> bytes:
     return data
 
 
+def _pdf_text_with_fallback(uploaded_file) -> str:
+    text = ""
+    try:
+        import pdfplumber  # type: ignore
+        with pdfplumber.open(uploaded_file) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+            text = "\n".join(pages)
+    except Exception:
+        try:
+            from pypdf import PdfReader  # type: ignore
+            uploaded_file.seek(0)
+            reader = PdfReader(uploaded_file)
+            pages = []
+            for p in reader.pages:
+                try:
+                    pages.append(p.extract_text() or "")
+                except Exception:
+                    pages.append("")
+            text = "\n".join(pages)
+        except Exception:
+            text = ""
+    finally:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+    return text
+
+
 def extract_uploaded_text(uploaded_file) -> Tuple[str, str]:
-    """Return (full_text, preview). Supports .docx and .txt/.csv; others return empty text.
-    The preview is truncated to ~1500 characters for UI display and prompt context.
+    """Return (full_text, preview). Supports .docx, .pdf, .txt/.csv, and .xlsx/.xls.
+    Preview is truncated to ~1500 chars.
     """
     name = (getattr(uploaded_file, "name", "file") or "file").lower()
     text = ""
@@ -111,6 +174,23 @@ def extract_uploaded_text(uploaded_file) -> Tuple[str, str]:
                 uploaded_file.seek(0)
             except Exception:
                 pass
+    elif name.endswith(".pdf"):
+        text = _pdf_text_with_fallback(uploaded_file)
+    elif name.endswith(".xlsx") or name.endswith(".xls"):
+        try:
+            import openpyxl  # type: ignore
+            data = _read_all_bytes(uploaded_file)
+            from io import BytesIO
+            wb = openpyxl.load_workbook(BytesIO(data), data_only=True)
+            parts: List[str] = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    if any(cells):
+                        parts.append("\t".join(cells))
+            text = "\n".join(parts)
+        except Exception:
+            text = ""
     elif name.endswith(".txt") or name.endswith(".csv"):
         try:
             data = _read_all_bytes(uploaded_file)
@@ -118,7 +198,7 @@ def extract_uploaded_text(uploaded_file) -> Tuple[str, str]:
         except Exception:
             text = ""
     else:
-        text = ""  # PDF/XLSX not supported without extra deps
+        text = ""
 
     preview_len = 1500
     preview = text[:preview_len]

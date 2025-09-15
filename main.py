@@ -59,7 +59,7 @@ def main():
         content_type = st.selectbox(
             "Тип содержимого",
             [
-                "ИИ + ссылка на документ",
+                "ИИ + источник",
                 "Только ИИ",
                 "Только документ",
             ],
@@ -72,16 +72,16 @@ def main():
             height=120,
         )
     with right:
-        st.caption("НПА (документы для справки: PDF/DOCX/Excel)")
-        npa_files = st.file_uploader(
-            "Загрузите файлы НПА",
-            type=["pdf", "docx", "doc", "xlsx", "xls", "csv", "txt"],
+        st.caption("Исходный документ(ы)")
+        source_files = st.file_uploader(
+            "Загрузите исходный документ(ы)",
+            type=["pdf", "docx", "txt", "xlsx", "xls", "csv"],
             accept_multiple_files=True,
         )
         st.caption("Документ со структурой (опционально)")
         struct_file = st.file_uploader(
             "Загрузите документ со структурой",
-            type=["pdf", "docx", "txt"],
+            type=["pdf", "docx", "txt", "xlsx", "xls", "csv"],
             accept_multiple_files=False,
         )
 
@@ -92,9 +92,12 @@ def main():
             st.write(struct_file.name)
             st.code(preview or "Предпросмотр недоступен для данного формата.")
 
-        if npa_files:
-            st.write("Загруженные НПА:")
-            for f in npa_files:
+        source_docs: List[Dict[str, str]] = []
+        if source_files:
+            st.write("Загруженные источники:")
+            for f in source_files:
+                _, preview = extract_uploaded_text(f)
+                source_docs.append({"name": f.name, "preview": preview})
                 size = 0
                 try:
                     size = len(f.getvalue())
@@ -110,13 +113,11 @@ def main():
         download_placeholder = st.empty()
 
     if run_clicked:
-        # Build normative docs context (limited extraction)
-        normative_docs: List[Dict[str, str]] = []
-        if npa_files:
-            for up in npa_files:
-                _, preview = extract_uploaded_text(up)
-                normative_docs.append({"name": up.name, "preview": preview})
+        if content_type == "Только документ" and not source_docs:
+            st.error("Вы выбрали 'Только документ', но не загрузили исходный документ.")
+            return
 
+        # Build context blocks
         input_data: Dict[str, Any] = {
             "title": st.session_state.get("title") or "",
             "sop_number": st.session_state.get("sop_number") or "",
@@ -125,7 +126,7 @@ def main():
             "content_type": content_type,
             "structure_description": st.session_state.get("structure_description") or "",
             "structure_text": structure_text_preview,
-            "normative_docs": normative_docs,
+            "source_docs": source_docs,
         }
         try:
             with st.spinner("Запуск многодельного обзора..."):

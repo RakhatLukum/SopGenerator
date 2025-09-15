@@ -15,7 +15,7 @@ except Exception:
     from urllib3.util.retry import Retry  # type: ignore
 from http.client import RemoteDisconnected
 
-API_BASE = "https://3uokg9wsrp46a3-8000.proxy.runpod.net/v1"
+API_BASE = "https://4m5g0rateg0xgh-8000.proxy.runpod.net/v1"
 API_URLS = [
     f"{API_BASE}/chat/completions",
     f"{API_BASE}/completions",  # some deployments use legacy route
@@ -391,18 +391,20 @@ def format_input_data_to_prompt(data: Dict[str, Any]) -> str:
     def field(key: str) -> str:
         return (data.get(key) or "").strip()
 
-    normative_docs: List[Dict[str, str]] = data.get("normative_docs") or []
-    norm_lines: List[str] = []
-    for i, nd in enumerate(normative_docs, start=1):
-        name = (nd.get("name") or f"Документ {i}").strip()
-        preview = (nd.get("preview") or "").strip()
+    source_docs: List[Dict[str, str]] = data.get("source_docs") or []
+    src_lines: List[str] = []
+    for i, sd in enumerate(source_docs, start=1):
+        name = (sd.get("name") or f"Источник {i}").strip()
+        preview = (sd.get("preview") or "").strip()
         if preview:
-            preview = preview[:1500]
-        norm_lines.append(f"- {name}: {preview}")
-    normative_block = "\n".join(norm_lines)
+            preview = preview[:2000]
+        src_lines.append(f"- {name}: {preview}")
+    source_block = "\n".join(src_lines)
 
     structure_text = field("structure_text")
     structure_desc = field("structure_description")
+
+    content_type = field("content_type")
 
     parts = [
         "Сгенерируй полный проект стандартной операционной процедуры (SOP) на русском языке, строго соблюдая правила форматирования.\n",
@@ -410,7 +412,7 @@ def format_input_data_to_prompt(data: Dict[str, Any]) -> str:
         f"Название: {field('title')}\n",
         f"Номер: {field('sop_number')}\n",
         f"Тип оборудования: {field('equipment_type')}\n",
-        f"Тип содержимого: {field('content_type')}\n",
+        f"Тип содержимого: {content_type}\n",
         "[/МЕТАДАННЫЕ]\n\n",
         "[ТЕКСТ ВВОДА]", "\n",
         f"Разделы/описание: {field('sections')}\n",
@@ -418,11 +420,11 @@ def format_input_data_to_prompt(data: Dict[str, Any]) -> str:
         "[/ТЕКСТ ВВОДА]\n\n",
     ]
 
-    if normative_block:
+    if source_block:
         parts.extend([
-            "[НОРМАТИВНЫЕ ДОКУМЕНТЫ]\n",
-            normative_block,
-            "\n[/НОРМАТИВНЫЕ ДОКУМЕНТЫ]\n\n",
+            "[ИСТОЧНИКИ]\n",
+            source_block,
+            "\n[/ИСТОЧНИКИ]\n\n",
         ])
 
     if structure_text:
@@ -451,6 +453,12 @@ def format_input_data_to_prompt(data: Dict[str, Any]) -> str:
     parts.append(
         "Требования к оформлению: формат страницы A4; поля 1 дюйм; шрифт Times New Roman или Arial 11–14; одинарный интервал; нумерация разделов и подразделов (1, 1.1, 1.1.1); подписи к таблицам и рисункам; нумерация приложений; при необходимости сноски формата [^n]: текст.\n"
     )
+
+    # Guidance based on content_type
+    if content_type == "Только документ":
+        parts.append("Используй исключительно информацию из блока [ИСТОЧНИКИ], без выдумывания фактов.\n")
+    elif content_type == "ИИ + источник":
+        parts.append("Опирайся на [ИСТОЧНИКИ], дополняя нейросетевыми формулировками, но не противоречь источнику.\n")
 
     return "".join(parts)
 
